@@ -3,7 +3,9 @@ import { v } from "convex/values";
 
 import { DEFAULT_EMBEDDING_DIMENSIONS } from "./lib/env";
 import {
+  assessmentKindValidator,
   aiRunStatusValidator,
+  assessmentSeedEntryFields,
   complianceResultValidator,
   complianceTargetTypeValidator,
   documentParseStatusValidator,
@@ -14,13 +16,16 @@ import {
   ragChunkFields,
   roleListValidator,
   scheduleOverrideStatusValidator,
+  scheduleCompositeSeedEntryFields,
   substitutionCandidateValidator,
   substitutionRequestStatusValidator,
+  staffLoadProfileFields,
   taskPriorityValidator,
   taskSourceValidator,
   taskStatusValidator,
   telegramIngressSourceValidator,
   telegramInviteCodeStatusValidator,
+  timeSlotSeedItemFields,
   telegramMessageTypeValidator,
   telegramParserStatusValidator,
   voiceCommandStatusValidator,
@@ -61,15 +66,16 @@ export default defineSchema({
     schoolId: v.id("schools"),
     code: v.string(),
     capacity: v.optional(v.number()),
+    floor: v.optional(v.number()),
+    homeClassCode: v.optional(v.string()),
+    managerName: v.optional(v.string()),
+    description: v.optional(v.string()),
     active: v.boolean(),
   }).index("by_school_code", ["schoolId", "code"]),
 
   timeSlots: defineTable({
     schoolId: v.id("schools"),
-    weekday: v.number(),
-    lessonNumber: v.number(),
-    startTime: v.string(),
-    endTime: v.string(),
+    ...timeSlotSeedItemFields,
   }).index("by_school_weekday_lesson", ["schoolId", "weekday", "lessonNumber"]),
 
   scheduleTemplates: defineTable({
@@ -84,6 +90,13 @@ export default defineSchema({
     .index("by_class_weekday_lesson", ["classId", "weekday", "lessonNumber"])
     .index("by_teacher_weekday_lesson", ["teacherId", "weekday", "lessonNumber"])
     .index("by_room_weekday_lesson", ["roomId", "weekday", "lessonNumber"]),
+
+  scheduleCompositeEntries: defineTable({
+    schoolId: v.id("schools"),
+    ...scheduleCompositeSeedEntryFields,
+  })
+    .index("by_class_weekday_lesson", ["classId", "weekday", "lessonNumber"])
+    .index("by_school_weekday_lesson", ["schoolId", "weekday", "lessonNumber"]),
 
   scheduleOverrides: defineTable({
     schoolId: v.id("schools"),
@@ -245,6 +258,21 @@ export default defineSchema({
   })
     .index("by_school_date_status", ["schoolId", "date", "status"])
     .index("by_absentTeacher_date", ["absentTeacherId", "date"]),
+
+  assessmentEntries: defineTable({
+    schoolId: v.id("schools"),
+    ...assessmentSeedEntryFields,
+  })
+    .index("by_school_kind_sourceRowKey", ["schoolId", "kind", "sourceRowKey"])
+    .index("by_school_kind_scheduledDate", ["schoolId", "kind", "scheduledDate"])
+    .index("by_school_classId_kind", ["schoolId", "classId", "kind"]),
+
+  staffLoadProfiles: defineTable({
+    schoolId: v.id("schools"),
+    ...staffLoadProfileFields,
+  })
+    .index("by_staff_academicYear", ["staffId", "academicYear"])
+    .index("by_school_academicYear", ["schoolId", "academicYear"]),
 
   ministryDocuments: defineTable({
     schoolId: v.id("schools"),

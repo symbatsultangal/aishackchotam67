@@ -4,7 +4,10 @@ import { mutationGeneric, queryGeneric } from "convex/server";
 import { v } from "convex/values";
 
 import { schoolDateParts } from "../../lib/time";
-import { scheduleSeedEntryValidator } from "../../lib/validators";
+import {
+  scheduleCompositeSeedEntryValidator,
+  scheduleSeedEntryValidator,
+} from "../../lib/validators";
 
 const mutation: any = mutationGeneric;
 const query: any = queryGeneric;
@@ -21,6 +24,28 @@ type SeedArgs = {
   }>;
 };
 
+type CompositeSeedArgs = {
+  schoolId: Id<"schools">;
+  entries: Array<{
+    classId: Id<"classes">;
+    weekday: number;
+    lessonNumber: number;
+    rawCellText: string;
+    rawRoomText?: string;
+    sourceSheet?: string;
+    sourceRowKey?: string;
+    active: boolean;
+    components: Array<{
+      subject: string;
+      teacherName?: string;
+      teacherId?: Id<"staff">;
+      roomCode?: string;
+      roomId?: Id<"rooms">;
+      notes?: string;
+    }>;
+  }>;
+};
+
 type GetTodayArgs = {
   schoolId: Id<"schools">;
   nowIso?: string;
@@ -30,6 +55,24 @@ type GetClassDayArgs = {
   classId: Id<"classes">;
   weekday: number;
 };
+
+function compositeEntryWrite(
+  entry: CompositeSeedArgs["entries"][number],
+  schoolId: Id<"schools">,
+) {
+  return {
+    schoolId,
+    classId: entry.classId,
+    weekday: entry.weekday,
+    lessonNumber: entry.lessonNumber,
+    rawCellText: entry.rawCellText,
+    active: entry.active,
+    components: entry.components,
+    ...(entry.rawRoomText !== undefined ? { rawRoomText: entry.rawRoomText } : {}),
+    ...(entry.sourceSheet !== undefined ? { sourceSheet: entry.sourceSheet } : {}),
+    ...(entry.sourceRowKey !== undefined ? { sourceRowKey: entry.sourceRowKey } : {}),
+  };
+}
 
 export const seed = mutation({
   args: {
@@ -62,6 +105,39 @@ export const seed = mutation({
           await ctx.db.insert("scheduleTemplates", {
             schoolId: args.schoolId,
             ...entry,
+          }),
+        );
+      }
+    }
+    return ids;
+  },
+});
+
+export const seedCompositeEntries = mutation({
+  args: {
+    schoolId: v.id("schools"),
+    entries: v.array(scheduleCompositeSeedEntryValidator),
+  },
+  handler: async (ctx: MutationCtx, args: CompositeSeedArgs) => {
+    const ids: Id<"scheduleCompositeEntries">[] = [];
+    for (const entry of args.entries) {
+      const existing = await ctx.db
+        .query("scheduleCompositeEntries")
+        .withIndex("by_class_weekday_lesson", (q: any) =>
+          q
+            .eq("classId", entry.classId)
+            .eq("weekday", entry.weekday)
+            .eq("lessonNumber", entry.lessonNumber),
+        )
+        .unique();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, compositeEntryWrite(entry, args.schoolId));
+        ids.push(existing._id);
+      } else {
+        ids.push(
+          await ctx.db.insert("scheduleCompositeEntries", {
+            ...compositeEntryWrite(entry, args.schoolId),
           }),
         );
       }
