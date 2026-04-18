@@ -22,6 +22,7 @@ import type * as lib_prompts from "../lib/prompts.js";
 import type * as lib_ranking from "../lib/ranking.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_validators from "../lib/validators.js";
+import type * as modules_dashboard_analytics from "../modules/dashboard/analytics.js";
 import type * as modules_dashboard_overview from "../modules/dashboard/overview.js";
 import type * as modules_dashboard_queues from "../modules/dashboard/queues.js";
 import type * as modules_ops_aiRuns from "../modules/ops/aiRuns.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   "lib/ranking": typeof lib_ranking;
   "lib/time": typeof lib_time;
   "lib/validators": typeof lib_validators;
+  "modules/dashboard/analytics": typeof modules_dashboard_analytics;
   "modules/dashboard/overview": typeof modules_dashboard_overview;
   "modules/dashboard/queues": typeof modules_dashboard_queues;
   "modules/ops/aiRuns": typeof modules_ops_aiRuns;

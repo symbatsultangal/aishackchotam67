@@ -160,16 +160,21 @@ export default defineSchema({
   }).index("by_school_date", ["schoolId", "date"]),
 
   incidents: defineTable({
-    schoolId: v.id("schools"),
-    sourceMessageId: v.id("telegramMessages"),
-    reportedByStaffId: v.id("staff"),
-    category: v.string(),
+    schoolId: v.optional(v.id("schools")),
+    sourceMessageId: v.optional(v.id("telegramMessages")),
+    reportedByStaffId: v.optional(v.id("staff")),
+    category: v.optional(v.string()),
     title: v.string(),
     description: v.string(),
     location: v.optional(v.string()),
     severity: incidentSeverityValidator,
     status: incidentStatusValidator,
     linkedTaskId: v.optional(v.id("tasks")),
+    // Deprecated legacy dashboard fields kept temporarily so existing dev data can validate.
+    type: v.optional(v.string()),
+    reportedBy: v.optional(v.string()),
+    assignedTo: v.optional(v.string()),
+    aiConfidence: v.optional(v.number()),
   }).index("by_school_status_created", ["schoolId", "status"]),
 
   voiceCommands: defineTable({
@@ -254,16 +259,25 @@ export default defineSchema({
     .index("by_school_result_checkedAt", ["schoolId", "result", "checkedAt"]),
 
   notifications: defineTable({
-    schoolId: v.id("schools"),
-    channel: v.literal("telegram"),
-    recipientStaffId: v.id("staff"),
-    templateKey: v.string(),
-    payload: v.any(),
-    status: notificationStatusValidator,
+    schoolId: v.optional(v.id("schools")),
+    channel: v.optional(v.literal("telegram")),
+    recipientStaffId: v.optional(v.id("staff")),
+    templateKey: v.optional(v.string()),
+    payload: v.optional(v.any()),
+    status: v.optional(notificationStatusValidator),
     externalMessageId: v.optional(v.string()),
-    scheduledFor: v.string(),
+    scheduledFor: v.optional(v.string()),
     sentAt: v.optional(v.string()),
-    dedupeKey: v.string(),
+    dedupeKey: v.optional(v.string()),
+    // Deprecated legacy dashboard notification fields kept temporarily for migration.
+    userId: v.optional(v.string()),
+    type: v.optional(v.string()),
+    title: v.optional(v.string()),
+    body: v.optional(v.string()),
+    isRead: v.optional(v.boolean()),
+    relatedId: v.optional(v.string()),
+    relatedType: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
   })
     .index("by_school_status_scheduledFor", ["schoolId", "status", "scheduledFor"])
     .index("by_recipient_status", ["recipientStaffId", "status"]),

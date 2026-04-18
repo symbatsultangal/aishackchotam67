@@ -1,6 +1,8 @@
 import { mutation, query } from "../../_generated/server";
 import { v } from "convex/values";
 
+import type { Id } from "../../_generated/dataModel";
+
 export const createBatch = mutation({
   args: {
     schoolId: v.id("schools"),
@@ -52,6 +54,32 @@ export const updateStatus = mutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.taskId, { status: args.status });
     return args.taskId;
+  },
+});
+
+export const updateDetails = mutation({
+  args: {
+    taskId: v.id("tasks"),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    dueAt: v.optional(v.string()),
+    priority: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
+    assigneeStaffId: v.optional(v.id("staff")),
+  },
+  handler: async (
+    ctx,
+    args: {
+      taskId: Id<"tasks">;
+      title?: string;
+      description?: string;
+      dueAt?: string;
+      priority?: "low" | "medium" | "high";
+      assigneeStaffId?: Id<"staff">;
+    },
+  ) => {
+    const { taskId, ...patch } = args;
+    await ctx.db.patch(taskId, patch);
+    return taskId;
   },
 });
 

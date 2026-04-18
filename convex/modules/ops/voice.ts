@@ -117,6 +117,47 @@ export const submitDashboardAudio = mutation({
   },
 });
 
+export const getCommandStatus = query({
+  args: {
+    commandId: v.id("voiceCommands"),
+  },
+  handler: async (ctx, args) => {
+    const command = await ctx.db.get(args.commandId);
+    if (!command) {
+      return null;
+    }
+
+    let tasks: Array<{
+      title: string;
+      description: string;
+      assigneeName: string;
+      dueText?: string;
+      priority?: "low" | "medium" | "high";
+    }> = [];
+
+    if (command.normalizedCommand) {
+      const parsed = JSON.parse(command.normalizedCommand) as {
+        tasks?: Array<{
+          title: string;
+          description: string;
+          assigneeName: string;
+          dueText?: string;
+          priority?: "low" | "medium" | "high";
+        }>;
+      };
+      tasks = parsed.tasks ?? [];
+    }
+
+    return {
+      _id: command._id,
+      status: command.status,
+      transcript: command.transcript,
+      normalizedCommand: command.normalizedCommand,
+      tasks,
+    };
+  },
+});
+
 export const transcribeAudio = action({
   args: {
     commandId: v.id("voiceCommands"),

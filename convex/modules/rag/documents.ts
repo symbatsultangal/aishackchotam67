@@ -73,6 +73,37 @@ export const registerUpload = mutation({
   },
 });
 
+export const createUploadUrl = mutation({
+  args: {},
+  handler: async (ctx: MutationCtx) => {
+    return ctx.storage.generateUploadUrl();
+  },
+});
+
+export const deleteDocument = mutation({
+  args: {
+    documentId: v.id("ministryDocuments"),
+  },
+  handler: async (ctx: MutationCtx, args: { documentId: Id<"ministryDocuments"> }) => {
+    const document = await ctx.db.get(args.documentId);
+    if (!document) {
+      return null;
+    }
+
+    const chunks = await ctx.db
+      .query("ministryChunks")
+      .withIndex("by_document_chunkIndex", (q: any) => q.eq("documentId", args.documentId))
+      .collect();
+    for (const chunk of chunks) {
+      await ctx.db.delete(chunk._id);
+    }
+
+    await ctx.storage.delete(document.storageId);
+    await ctx.db.delete(args.documentId);
+    return args.documentId;
+  },
+});
+
 export const getDocumentStatus = query({
   args: {
     schoolId: v.id("schools"),

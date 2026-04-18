@@ -80,6 +80,67 @@ export const upsertFact = mutation({
   },
 });
 
+export const submitDashboardFact = mutation({
+  args: {
+    schoolId: v.id("schools"),
+    date: v.string(),
+    classId: v.id("classes"),
+    staffId: v.id("staff"),
+    presentCount: v.number(),
+    absentCount: v.number(),
+    mealCount: v.number(),
+    confidence: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const dedupeKey = `dashboard:attendance:${args.schoolId}:${args.date}:${args.classId}`;
+    const existingMessage = await ctx.db
+      .query("telegramMessages")
+      .withIndex("by_dedupe_key", (q: any) => q.eq("dedupeKey", dedupeKey))
+      .unique();
+
+    const sourceMessageId =
+      existingMessage?._id ??
+      (await ctx.db.insert("telegramMessages", {
+        schoolId: args.schoolId,
+        chatId: "dashboard",
+        telegramMessageId: dedupeKey,
+        telegramUserId: args.staffId,
+        staffId: args.staffId,
+        direction: "in",
+        messageType: "text",
+        rawText: `Dashboard attendance ${args.date}`,
+        receivedAt: nowIsoString(),
+        parserStatus: "processed",
+        dedupeKey,
+      }));
+
+    const existingFact = await ctx.db
+      .query("attendanceFacts")
+      .withIndex("by_school_date_class", (q: any) =>
+        q.eq("schoolId", args.schoolId).eq("date", args.date).eq("classId", args.classId),
+      )
+      .unique();
+
+    const fact = {
+      schoolId: args.schoolId,
+      date: args.date,
+      classId: args.classId,
+      sourceMessageId,
+      presentCount: args.presentCount,
+      absentCount: args.absentCount,
+      mealCount: args.mealCount,
+      confidence: args.confidence ?? 1,
+    };
+
+    if (existingFact) {
+      await ctx.db.patch(existingFact._id, fact);
+      return existingFact._id;
+    }
+
+    return ctx.db.insert("attendanceFacts", fact);
+  },
+});
+
 export const save = mutation({
   args: {
     schoolId: v.id("schools"),

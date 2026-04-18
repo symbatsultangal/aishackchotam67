@@ -20,6 +20,40 @@ export const createFromParse = mutation({
   },
 });
 
+export const createManual = mutation({
+  args: {
+    schoolId: v.id("schools"),
+    reportedByStaffId: v.id("staff"),
+    category: v.string(),
+    title: v.string(),
+    description: v.string(),
+    location: v.optional(v.string()),
+    severity: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+  },
+  handler: async (ctx, args) => {
+    const now = new Date().toISOString();
+    const sourceMessageId = await ctx.db.insert("telegramMessages", {
+      schoolId: args.schoolId,
+      chatId: "dashboard",
+      telegramMessageId: `dashboard:incident:${now}`,
+      telegramUserId: args.reportedByStaffId,
+      staffId: args.reportedByStaffId,
+      direction: "in",
+      messageType: "text",
+      rawText: args.description,
+      receivedAt: now,
+      parserStatus: "processed",
+      dedupeKey: `dashboard:incident:${args.schoolId}:${args.reportedByStaffId}:${now}`,
+    });
+
+    return ctx.db.insert("incidents", {
+      ...args,
+      sourceMessageId,
+      status: "open",
+    });
+  },
+});
+
 export const updateStatus = mutation({
   args: {
     incidentId: v.id("incidents"),

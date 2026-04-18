@@ -3,7 +3,7 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { mutationGeneric, queryGeneric } from "convex/server";
 import { v } from "convex/values";
 
-import { staffSeedMemberValidator } from "../../lib/validators";
+import { roleListValidator, staffSeedMemberValidator } from "../../lib/validators";
 
 const mutation: any = mutationGeneric;
 const query: any = queryGeneric;
@@ -33,6 +33,29 @@ type SeedArgs = {
 type ListAssignableArgs = {
   schoolId: Id<"schools">;
   activeOnly?: boolean;
+};
+
+type ListBySchoolArgs = {
+  schoolId: Id<"schools">;
+  activeOnly?: boolean;
+};
+
+type UpdateStaffArgs = {
+  staffId: Id<"staff">;
+  patch: Partial<
+    Pick<
+      Doc<"staff">,
+      | "fullName"
+      | "displayName"
+      | "roles"
+      | "subjects"
+      | "grades"
+      | "qualifications"
+      | "telegramEnabled"
+      | "dashboardAccess"
+      | "isActive"
+    >
+  >;
 };
 
 export const seed = mutation({
@@ -82,5 +105,48 @@ export const listAssignable = query({
       (row) =>
         row.roles.includes("teacher") || row.roles.includes("facilities"),
     );
+  },
+});
+
+export const listBySchool = query({
+  args: {
+    schoolId: v.id("schools"),
+    activeOnly: v.optional(v.boolean()),
+  },
+  handler: async (ctx: QueryCtx, args: ListBySchoolArgs) => {
+    if (args.activeOnly !== undefined) {
+      return ctx.db
+        .query("staff")
+        .withIndex("by_school_role_active", (q: any) =>
+          q.eq("schoolId", args.schoolId).eq("isActive", args.activeOnly),
+        )
+        .collect();
+    }
+
+    return ctx.db
+      .query("staff")
+      .withIndex("by_school_name", (q: any) => q.eq("schoolId", args.schoolId))
+      .collect();
+  },
+});
+
+export const updateStaff = mutation({
+  args: {
+    staffId: v.id("staff"),
+    patch: v.object({
+      fullName: v.optional(v.string()),
+      displayName: v.optional(v.string()),
+      roles: v.optional(roleListValidator),
+      subjects: v.optional(v.array(v.string())),
+      grades: v.optional(v.array(v.string())),
+      qualifications: v.optional(v.array(v.string())),
+      telegramEnabled: v.optional(v.boolean()),
+      dashboardAccess: v.optional(v.boolean()),
+      isActive: v.optional(v.boolean()),
+    }),
+  },
+  handler: async (ctx: MutationCtx, args: UpdateStaffArgs) => {
+    await ctx.db.patch(args.staffId, args.patch);
+    return args.staffId;
   },
 });

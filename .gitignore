@@ -1,2 +1,5 @@
 
 .env.local
+dist/
+node_modules/
+vite-dev.*.log
