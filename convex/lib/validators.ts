@@ -43,6 +43,11 @@ export const incidentStatusValidator = v.union(
   v.literal("resolved"),
 );
 
+export const incidentAssignmentStatusValidator = v.union(
+  v.literal("assigned"),
+  v.literal("unassigned"),
+);
+
 export const telegramMessageTypeValidator = v.union(
   v.literal("text"),
   v.literal("voice"),
@@ -53,6 +58,18 @@ export const telegramParserStatusValidator = v.union(
   v.literal("processed"),
   v.literal("ignored"),
   v.literal("error"),
+);
+
+export const telegramInviteCodeStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("redeemed"),
+  v.literal("expired"),
+  v.literal("revoked"),
+);
+
+export const telegramIngressSourceValidator = v.union(
+  v.literal("polling"),
+  v.literal("webhook"),
 );
 
 export const voiceCommandStatusValidator = v.union(

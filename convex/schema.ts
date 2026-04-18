@@ -7,6 +7,7 @@ import {
   complianceResultValidator,
   complianceTargetTypeValidator,
   documentParseStatusValidator,
+  incidentAssignmentStatusValidator,
   incidentSeverityValidator,
   incidentStatusValidator,
   notificationStatusValidator,
@@ -18,6 +19,8 @@ import {
   taskPriorityValidator,
   taskSourceValidator,
   taskStatusValidator,
+  telegramIngressSourceValidator,
+  telegramInviteCodeStatusValidator,
   telegramMessageTypeValidator,
   telegramParserStatusValidator,
   voiceCommandStatusValidator,
@@ -114,20 +117,38 @@ export default defineSchema({
     active: v.boolean(),
   })
     .index("by_school_telegram_user", ["schoolId", "telegramUserId"])
-    .index("by_school_staff", ["schoolId", "staffId"]),
+    .index("by_school_staff", ["schoolId", "staffId"])
+    .index("by_school_chat", ["schoolId", "chatId"]),
+
+  telegramInviteCodes: defineTable({
+    schoolId: v.id("schools"),
+    staffId: v.id("staff"),
+    code: v.string(),
+    status: telegramInviteCodeStatusValidator,
+    expiresAt: v.string(),
+    redeemedAt: v.optional(v.string()),
+    redeemedTelegramUserId: v.optional(v.string()),
+    redeemedChatId: v.optional(v.string()),
+  })
+    .index("by_code", ["code"])
+    .index("by_school_staff_status", ["schoolId", "staffId", "status"])
+    .index("by_school_status_expiresAt", ["schoolId", "status", "expiresAt"]),
 
   telegramMessages: defineTable({
     schoolId: v.id("schools"),
     chatId: v.string(),
     telegramMessageId: v.string(),
+    updateId: v.optional(v.number()),
     telegramUserId: v.string(),
     staffId: v.optional(v.id("staff")),
     direction: v.union(v.literal("in"), v.literal("out")),
     messageType: telegramMessageTypeValidator,
     rawText: v.optional(v.string()),
     fileId: v.optional(v.string()),
+    source: v.optional(telegramIngressSourceValidator),
     receivedAt: v.string(),
     parserStatus: telegramParserStatusValidator,
+    parserDetails: v.optional(v.string()),
     dedupeKey: v.string(),
   })
     .index("by_dedupe_key", ["dedupeKey"])
@@ -146,7 +167,8 @@ export default defineSchema({
     parserRunId: v.optional(v.id("aiRuns")),
   })
     .index("by_school_date_class", ["schoolId", "date", "classId"])
-    .index("by_school_date", ["schoolId", "date"]),
+    .index("by_school_date", ["schoolId", "date"])
+    .index("by_source_message_id", ["sourceMessageId"]),
 
   mealSummaries: defineTable({
     schoolId: v.id("schools"),
@@ -170,12 +192,16 @@ export default defineSchema({
     severity: incidentSeverityValidator,
     status: incidentStatusValidator,
     linkedTaskId: v.optional(v.id("tasks")),
+    assignmentStatus: v.optional(incidentAssignmentStatusValidator),
+    assignmentReason: v.optional(v.string()),
     // Deprecated legacy dashboard fields kept temporarily so existing dev data can validate.
     type: v.optional(v.string()),
     reportedBy: v.optional(v.string()),
     assignedTo: v.optional(v.string()),
     aiConfidence: v.optional(v.number()),
-  }).index("by_school_status_created", ["schoolId", "status"]),
+  })
+    .index("by_school_status_created", ["schoolId", "status"])
+    .index("by_source_message_id", ["sourceMessageId"]),
 
   voiceCommands: defineTable({
     schoolId: v.id("schools"),
@@ -280,7 +306,8 @@ export default defineSchema({
     createdAt: v.optional(v.number()),
   })
     .index("by_school_status_scheduledFor", ["schoolId", "status", "scheduledFor"])
-    .index("by_recipient_status", ["recipientStaffId", "status"]),
+    .index("by_recipient_status", ["recipientStaffId", "status"])
+    .index("by_dedupe_key", ["dedupeKey"]),
 
   aiRuns: defineTable({
     schoolId: v.id("schools"),
