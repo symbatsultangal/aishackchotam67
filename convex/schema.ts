@@ -37,6 +37,9 @@ export default defineSchema({
     timezone: v.string(),
     locale: v.string(),
     active: v.boolean(),
+    // P0-5: opt-in flag that allows inbound messages from Telegram group chats
+    // (not only private chats). When false/undefined, group messages are ignored.
+    allowGroupInbound: v.optional(v.boolean()),
   }),
 
   staff: defineTable({
@@ -50,6 +53,9 @@ export default defineSchema({
     telegramEnabled: v.boolean(),
     dashboardAccess: v.boolean(),
     isActive: v.boolean(),
+    // P1-6: scheduling norms used by future generator + load heatmap thresholds.
+    weeklyHoursNorm: v.optional(v.number()),
+    maxLessonsPerDay: v.optional(v.number()),
   })
     .index("by_school_name", ["schoolId", "fullName"])
     .index("by_school_role_active", ["schoolId", "isActive"]),
@@ -71,6 +77,10 @@ export default defineSchema({
     managerName: v.optional(v.string()),
     description: v.optional(v.string()),
     active: v.boolean(),
+    // P1-6: specialization tag (e.g. "chemistry", "gym", "language", "default").
+    // Used by the generator + conflict-aware room ranking; lessons with a
+    // subjectRequirement should only be placed in matching rooms.
+    specialization: v.optional(v.string()),
   }).index("by_school_code", ["schoolId", "code"]),
 
   timeSlots: defineTable({
@@ -86,6 +96,9 @@ export default defineSchema({
     subject: v.string(),
     teacherId: v.id("staff"),
     roomId: v.id("rooms"),
+    // P1-6: hint that the lesson needs a specifically specialized room
+    // (e.g. "chemistry" for химия) for the generator + conflict-aware check.
+    subjectRequirement: v.optional(v.string()),
   })
     .index("by_class_weekday_lesson", ["classId", "weekday", "lessonNumber"])
     .index("by_teacher_weekday_lesson", ["teacherId", "weekday", "lessonNumber"])
@@ -163,6 +176,10 @@ export default defineSchema({
     parserStatus: telegramParserStatusValidator,
     parserDetails: v.optional(v.string()),
     dedupeKey: v.string(),
+    // P0-5: distinguish private (direct teacher/director DM) from group (staff group chat).
+    chatKind: v.optional(
+      v.union(v.literal("private"), v.literal("group"), v.literal("supergroup")),
+    ),
   })
     .index("by_dedupe_key", ["dedupeKey"])
     .index("by_school_status_receivedAt", ["schoolId", "parserStatus", "receivedAt"])
@@ -225,6 +242,26 @@ export default defineSchema({
     normalizedCommand: v.optional(v.string()),
     status: voiceCommandStatusValidator,
     parserRunId: v.optional(v.id("aiRuns")),
+    // P1-4: classified intent so we can dispatch to substitution/order pipelines
+    // rather than always creating task rows.
+    intent: v.optional(
+      v.union(
+        v.literal("task_batch"),
+        v.literal("substitution"),
+        v.literal("order_draft"),
+        v.literal("unclear"),
+      ),
+    ),
+    // P1-4: stashed substitution payload when intent === "substitution".
+    substitutionDraft: v.optional(
+      v.object({
+        absentTeacherName: v.string(),
+        date: v.string(),
+        lessons: v.array(v.number()),
+        reason: v.string(),
+      }),
+    ),
+    substitutionRequestId: v.optional(v.id("substitutionRequests")),
   }).index("by_school_status_created", ["schoolId", "status"]),
 
   tasks: defineTable({
@@ -355,6 +392,30 @@ export default defineSchema({
   })
     .index("by_source", ["sourceTable", "sourceId"])
     .index("by_status_startedAt", ["status", "startedAt"]),
+
+  // P1-3: interactive order (Приказ) drafts. The director starts with a
+  // templateKey + instruction; the orchestrator collects answers turn by turn,
+  // retrieves RAG context for the relevant ministry sections, and composes
+  // the final order text. Citations are snapshotted at finalize time.
+  orderDrafts: defineTable({
+    schoolId: v.id("schools"),
+    createdByStaffId: v.id("staff"),
+    templateKey: v.string(),
+    instruction: v.string(),
+    answers: v.array(v.object({ field: v.string(), question: v.string(), answer: v.string() })),
+    pendingQuestion: v.optional(v.string()),
+    pendingField: v.optional(v.string()),
+    generatedText: v.optional(v.string()),
+    citations: v.array(v.string()),
+    status: v.union(
+      v.literal("collecting"),
+      v.literal("drafting"),
+      v.literal("draft"),
+      v.literal("final"),
+      v.literal("error"),
+    ),
+    complianceCheckId: v.optional(v.id("complianceChecks")),
+  }).index("by_school_status_created", ["schoolId", "status"]),
 
   auditEvents: defineTable({
     schoolId: v.id("schools"),

@@ -69,6 +69,29 @@ export const createRequest = mutation({
   },
 });
 
+// P1-4: alias invoked from the voice pipeline. Identical behavior to
+// createRequest — separate export gives call sites clearer semantics.
+export const createFromVoice = mutation({
+  args: {
+    schoolId: v.id("schools"),
+    absentTeacherId: v.id("staff"),
+    date: v.string(),
+    lessons: v.array(v.number()),
+    reason: v.string(),
+    createdByStaffId: v.id("staff"),
+    sourceCommandId: v.optional(v.id("voiceCommands")),
+  },
+  handler: async (ctx: MutationCtx, args: CreateRequestArgs) => {
+    const requestId = await ctx.db.insert("substitutionRequests", {
+      ...args,
+      status: "pending",
+      chosenCandidates: [],
+    });
+    await ctx.scheduler.runAfter(0, rankCandidatesRef, { requestId });
+    return requestId;
+  },
+});
+
 export const listToday = query({
   args: {
     schoolId: v.id("schools"),
