@@ -55,6 +55,7 @@ export const telegramMessageTypeValidator = v.union(
 
 export const telegramParserStatusValidator = v.union(
   v.literal("pending"),
+  v.literal("transcribing"),
   v.literal("processed"),
   v.literal("ignored"),
   v.literal("error"),
@@ -75,8 +76,16 @@ export const telegramIngressSourceValidator = v.union(
 export const voiceCommandStatusValidator = v.union(
   v.literal("uploaded"),
   v.literal("transcribed"),
+  v.literal("planned"),
   v.literal("routed"),
   v.literal("error"),
+);
+
+export const voiceCommandIntentValidator = v.union(
+  v.literal("task_batch"),
+  v.literal("substitution"),
+  v.literal("order_draft"),
+  v.literal("unclear"),
 );
 
 export const substitutionRequestStatusValidator = v.union(
@@ -190,6 +199,7 @@ export const scheduleSeedEntryFields = {
   subject: v.string(),
   teacherId: v.id("staff"),
   roomId: v.id("rooms"),
+  subjectRequirement: v.optional(v.string()),
 };
 
 export const scheduleSeedEntryValidator = v.object(scheduleSeedEntryFields);

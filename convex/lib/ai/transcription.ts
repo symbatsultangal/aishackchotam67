@@ -7,6 +7,7 @@ type EnvMap = Record<string, string | undefined>;
 export async function transcribeAudioBlob(
   audio: Blob,
   env: EnvMap = process.env,
+  options: { language?: string } = {},
 ): Promise<{ provider: string; model: string; transcript: string }> {
   const config = getAiCapabilityConfig("voiceTranscription", env);
   if (config.provider !== "openai") {
@@ -24,6 +25,8 @@ export async function transcribeAudioBlob(
   const response = await client.audio.transcriptions.create({
     file,
     model: config.model,
+    // P0-3: language hint reduces hallucinations for Cyrillic audio.
+    ...(options.language ? { language: options.language } : {}),
   });
 
   return {

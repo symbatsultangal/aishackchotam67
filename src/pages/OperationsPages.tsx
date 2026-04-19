@@ -865,6 +865,7 @@ export function DocumentsPage({ adminOnly = false }: { adminOnly?: boolean }) {
         <TabsList>
           <TabsTrigger value="library">Библиотека</TabsTrigger>
           <TabsTrigger value="compliance">Проверка</TabsTrigger>
+          <TabsTrigger value="order">Составить приказ</TabsTrigger>
         </TabsList>
         <TabsContent value="compliance" className="mt-6">
           <Textarea placeholder="Введи текст для проверки соответствия нормативам..." value={complianceText} onChange={(event) => setComplianceText(event.target.value)} />
@@ -889,6 +890,9 @@ export function DocumentsPage({ adminOnly = false }: { adminOnly?: boolean }) {
               {complianceResult === "pass" ? "Соответствует нормам" : complianceResult === "warn" ? "Есть замечания" : "Нарушение обнаружено"}
             </div>
           ) : null}
+        </TabsContent>
+        <TabsContent value="order" className="mt-6">
+          <OrderDraftFlow />
         </TabsContent>
         <TabsContent value="library" className="mt-6">
           <Section label="БИБЛИОТЕКА ДОКУМЕНТОВ">
@@ -937,6 +941,203 @@ export function DocumentsPage({ adminOnly = false }: { adminOnly?: boolean }) {
         </TabsContent>
       </Tabs>
     </PageFrame>
+  );
+}
+
+function OrderDraftFlow() {
+  const { schoolId, currentStaff } = useSchool();
+  const templates = useQuery(api["modules/rag/orderGenerator"].listTemplates);
+  const startDraft = useAction(api["modules/rag/orderGenerator"].startOrderDraft);
+  const answerQuestion = useAction(api["modules/rag/orderGenerator"].answerOrderQuestion);
+
+  const [templateKey, setTemplateKey] = useState("");
+  const [instruction, setInstruction] = useState("");
+  const [draftId, setDraftId] = useState<Id<"orderDrafts"> | null>(null);
+  const [answerInput, setAnswerInput] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const draft = useQuery(
+    api["modules/rag/orderGenerator"].getOrderDraft,
+    draftId ? { draftId } : "skip",
+  );
+
+  async function handleStart() {
+    if (!schoolId || !currentStaff || !templateKey) return;
+    setBusy(true);
+    try {
+      const result = await startDraft({
+        schoolId,
+        createdByStaffId: currentStaff._id,
+        templateKey,
+        initialInstruction: instruction || "Составить приказ",
+      });
+      setDraftId(result.draftId);
+    } catch {
+      toast.error("Не удалось начать составление приказа");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAnswer() {
+    if (!draftId || !answerInput.trim()) return;
+    setBusy(true);
+    try {
+      await answerQuestion({ draftId, answerText: answerInput.trim() });
+      setAnswerInput("");
+    } catch {
+      toast.error("Не удалось отправить ответ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!draftId) {
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">Выбери шаблон приказа и опиши, что нужно оформить.</p>
+        <select
+          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+          value={templateKey}
+          onChange={(e) => setTemplateKey(e.target.value)}
+        >
+          <option value="">— выбери шаблон —</option>
+          {(templates ?? []).map((t) => (
+            <option key={t.key} value={t.key}>{t.title}</option>
+          ))}
+        </select>
+        {templateKey ? (
+          <p className="text-xs text-gray-400">{templates?.find((t) => t.key === templateKey)?.description}</p>
+        ) : null}
+        <Textarea
+          placeholder="Дополнительные инструкции (необязательно)..."
+          rows={3}
+          value={instruction}
+          onChange={(e) => setInstruction(e.target.value)}
+        />
+        <Button
+          className="w-full"
+          disabled={!templateKey || busy || !schoolId}
+          onClick={() => void handleStart()}
+        >
+          {busy ? <Spinner className="animate-spin" aria-hidden /> : null}
+          Начать составление
+        </Button>
+      </div>
+    );
+  }
+
+  if (!draft) {
+    return (
+      <div className="py-8 text-center">
+        <Spinner className="mx-auto size-8 animate-spin text-brand-accent" aria-hidden />
+        <p className="mt-3 text-sm text-gray-500">Загружаем черновик...</p>
+      </div>
+    );
+  }
+
+  if (draft.status === "collecting" && draft.pendingQuestion) {
+    return (
+      <div className="space-y-4">
+        <p className="text-xs uppercase tracking-wide text-brand-accent">Сбор данных для приказа</p>
+        {draft.answers.length > 0 ? (
+          <div className="space-y-2">
+            {draft.answers.map((a, i) => (
+              <div key={i} className="rounded-lg bg-gray-50 p-3 text-sm">
+                <p className="font-medium text-gray-700">{a.question}</p>
+                <p className="text-gray-500">{a.answer}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="rounded-lg border border-brand-accent/30 bg-purple-50 p-4">
+          <p className="text-sm font-medium text-gray-800">{draft.pendingQuestion}</p>
+        </div>
+        <div className="flex gap-2">
+          <Input
+            className="flex-1"
+            placeholder="Введи ответ..."
+            value={answerInput}
+            onChange={(e) => setAnswerInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleAnswer(); } }}
+          />
+          <Button disabled={busy || !answerInput.trim()} onClick={() => void handleAnswer()}>
+            {busy ? <Spinner className="animate-spin" aria-hidden /> : "Ответить"}
+          </Button>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => { setDraftId(null); setTemplateKey(""); setInstruction(""); }}>
+          Отменить
+        </Button>
+      </div>
+    );
+  }
+
+  if (draft.status === "drafting") {
+    return (
+      <div className="py-8 text-center">
+        <Spinner className="mx-auto size-8 animate-spin text-brand-accent" aria-hidden />
+        <p className="mt-3 text-sm text-gray-500">Составляем текст приказа с использованием нормативной базы...</p>
+      </div>
+    );
+  }
+
+  if (draft.status === "draft" || draft.status === "final") {
+    return (
+      <div className="space-y-4">
+        <p className="text-xs uppercase tracking-wide text-brand-accent">
+          {draft.status === "draft" ? "Черновик приказа" : "Финальная версия"}
+        </p>
+        {draft.complianceCheckId ? (
+          <Badge className="bg-green-100 text-green-700">Проверка соответствия выполнена</Badge>
+        ) : null}
+        <div className="whitespace-pre-wrap rounded-lg border bg-white p-5 text-sm leading-relaxed text-gray-800">
+          {draft.generatedText}
+        </div>
+        {draft.citations.length > 0 ? (
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="mb-2 text-xs font-medium uppercase text-gray-500">Ссылки на нормативы</p>
+            <ul className="list-disc space-y-1 pl-5 text-xs text-gray-600">
+              {draft.citations.map((c, i) => <li key={i}>{c}</li>)}
+            </ul>
+          </div>
+        ) : null}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (draft.generatedText) {
+                void navigator.clipboard.writeText(draft.generatedText);
+                toast.success("Текст скопирован в буфер обмена");
+              }
+            }}
+          >
+            Скопировать
+          </Button>
+          <Button variant="outline" onClick={() => { setDraftId(null); setTemplateKey(""); setInstruction(""); }}>
+            Новый приказ
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (draft.status === "error") {
+    return (
+      <div className="py-6 text-center">
+        <Warning className="mx-auto size-10 text-red-500" aria-hidden />
+        <p className="mt-3 text-sm text-gray-600">Произошла ошибка при составлении приказа. Попробуй ещё раз.</p>
+        <Button className="mt-4" variant="outline" onClick={() => { setDraftId(null); setTemplateKey(""); setInstruction(""); }}>
+          Начать сначала
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-8 text-center">
+      <Spinner className="mx-auto size-8 animate-spin text-brand-accent" aria-hidden />
+      <p className="mt-3 text-sm text-gray-500">Обработка...</p>
+    </div>
   );
 }
 
@@ -1069,37 +1270,146 @@ export function VPDashboard() {
   );
 }
 
+function teacherLoadColor(count: number | undefined): string {
+  if (!count || count < 3) return "text-green-700 bg-green-50";
+  if (count <= 5) return "text-yellow-700 bg-yellow-50";
+  return "text-red-700 bg-red-50";
+}
+
 export function SchedulePage({ todayOnly = false }: { todayOnly?: boolean }) {
   const { schoolId, classes, staffById } = useSchool();
   const schedule = useQuery(api["modules/schoolCore/schedule"].getToday, schoolId ? { schoolId } : "skip");
+  const teacherLoad = useQuery(api["modules/schoolCore/schedule"].getTeacherLoadToday, schoolId ? { schoolId } : "skip");
+  const applyOverride = useMutation(api["modules/schoolCore/schedule"].applyManualOverride);
+  const cancelOv = useMutation(api["modules/schoolCore/schedule"].cancelOverride);
+  const previewConflict = useQuery(
+    api["modules/schoolCore/schedule"].previewOverride,
+    "skip",
+  );
+  const [dragSource, setDragSource] = useState<{ classId: string; lesson: number; teacherId: string; roomId: string; subject: string } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [conflictCells, setConflictCells] = useState<Set<string>>(new Set());
+
+  function handleDragStart(classId: string, lesson: number, teacherId: string, roomId: string, subject: string) {
+    setDragSource({ classId, lesson, teacherId, roomId, subject });
+    const teacherCells = new Set<string>();
+    if (schedule) {
+      for (const row of schedule) {
+        if (String(row.activeTeacherId) === teacherId && row.lessonNumber !== lesson) {
+          teacherCells.add(`${row.classId}-${row.lessonNumber - 1}`);
+        }
+      }
+    }
+    setConflictCells(teacherCells);
+  }
+
+  function handleDragEnd() {
+    setDragSource(null);
+    setDragOverTarget(null);
+    setConflictCells(new Set());
+  }
+
+  async function handleDrop(targetClassId: string, targetLesson: number) {
+    if (!dragSource || !schoolId || !schedule) return;
+    const targetRow = schedule.find(
+      (item) => item.classId === targetClassId && item.lessonNumber === targetLesson,
+    );
+    if (!targetRow) return;
+
+    const today = todayIso();
+    try {
+      const overrideId = await applyOverride({
+        schoolId,
+        date: today,
+        classId: targetClassId as Id<"classes">,
+        lessonNumber: targetLesson,
+        originalTeacherId: targetRow.activeTeacherId,
+        substituteTeacherId: dragSource.teacherId as Id<"staff">,
+        roomId: targetRow.activeRoomId ?? (targetRow as any).roomId,
+        subject: targetRow.subject,
+      });
+      toast.success("Замена применена", {
+        action: {
+          label: "Отменить",
+          onClick: () => void cancelOv({ overrideId }).then(() => toast.info("Замена отменена")),
+        },
+      });
+    } catch {
+      toast.error("Не удалось применить замену");
+    }
+    handleDragEnd();
+  }
+
   return (
     <PageFrame>
       {!todayOnly ? <PageHeader title="Расписание" subtitle="Учебная сетка на неделю" /> : null}
       {schedule === undefined ? <SkeletonCard /> : (
-        <div className="overflow-x-auto rounded-lg bg-white">
-          <div className="grid min-w-[760px]" style={{ gridTemplateColumns: `5rem repeat(${Math.max(classes.length, 1)}, minmax(7rem,1fr))` }}>
-            <div className="border-b border-gray-100 p-3 text-xs uppercase tracking-wider text-gray-500">Урок</div>
-            {classes.map((classDoc) => <div key={classDoc._id} className="border-b border-gray-100 p-3 text-xs font-medium text-gray-500">{classDoc.code}</div>)}
-            {Array.from({ length: 8 }).map((_, lessonIndex) => (
-              <div key={`lesson-${lessonIndex}`} className="contents">
-                <div className="border-b border-gray-100 p-3 text-sm tabular-nums">{lessonIndex + 1}</div>
-                {classes.map((classDoc) => {
-                  const row = schedule.find((item) => item.classId === classDoc._id && item.lessonNumber === lessonIndex + 1);
-                  return (
-                    <div key={`${classDoc._id}-${lessonIndex}`} className={cn("min-h-16 border-b border-gray-100 p-3", row?.overrideId && "bg-orange-50 text-orange-700")}>
-                      {row ? (
-                        <>
-                          <p className="text-sm font-medium">{row.subject}</p>
-                          <p className="text-xs text-gray-500">{staffById.get(row.activeTeacherId)?.displayName ?? "Учитель"}</p>
-                        </>
-                      ) : <span className="text-gray-200">—</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+        <>
+          {teacherLoad && !todayOnly ? (
+            <div className="mb-4 flex items-center gap-4 text-xs">
+              <span className="text-gray-500">Нагрузка учителя:</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm bg-green-100" />&lt;3</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm bg-yellow-100" />3–5</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm bg-red-100" />&ge;6</span>
+              {!todayOnly ? <span className="ml-auto text-gray-400">Перетащи ячейку для замены</span> : null}
+            </div>
+          ) : null}
+          <div className="overflow-x-auto rounded-lg bg-white">
+            <div className="grid min-w-[760px]" style={{ gridTemplateColumns: `5rem repeat(${Math.max(classes.length, 1)}, minmax(7rem,1fr))` }}>
+              <div className="border-b border-gray-100 p-3 text-xs uppercase tracking-wider text-gray-500">Урок</div>
+              {classes.map((classDoc) => <div key={classDoc._id} className="border-b border-gray-100 p-3 text-xs font-medium text-gray-500">{classDoc.code}</div>)}
+              {Array.from({ length: 8 }).map((_, lessonIndex) => (
+                <div key={`lesson-${lessonIndex}`} className="contents">
+                  <div className="border-b border-gray-100 p-3 text-sm tabular-nums">{lessonIndex + 1}</div>
+                  {classes.map((classDoc) => {
+                    const row = schedule.find((item) => item.classId === classDoc._id && item.lessonNumber === lessonIndex + 1);
+                    const load = row && teacherLoad ? teacherLoad[String(row.activeTeacherId)] : undefined;
+                    const loadStyle = teacherLoad ? teacherLoadColor(load) : "";
+                    const cellKey = `${classDoc._id}-${lessonIndex}`;
+                    const isConflict = conflictCells.has(cellKey);
+                    const isDragOver = dragOverTarget === cellKey;
+                    return (
+                      <div
+                        key={cellKey}
+                        draggable={!!row && !todayOnly}
+                        onDragStart={() => {
+                          if (row) handleDragStart(String(classDoc._id), lessonIndex + 1, String(row.activeTeacherId), String(row.activeRoomId ?? (row as any).roomId), row.subject);
+                        }}
+                        onDragEnd={handleDragEnd}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          if (dragSource) setDragOverTarget(cellKey);
+                        }}
+                        onDragLeave={() => setDragOverTarget(null)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          void handleDrop(String(classDoc._id), lessonIndex + 1);
+                        }}
+                        className={cn(
+                          "min-h-16 border-b border-gray-100 p-3 transition-colors",
+                          row?.overrideId && "bg-orange-50 text-orange-700",
+                          isConflict && "ring-2 ring-inset ring-red-400 bg-red-50",
+                          isDragOver && !isConflict && "ring-2 ring-inset ring-blue-400 bg-blue-50",
+                          row && !todayOnly && "cursor-grab active:cursor-grabbing",
+                        )}
+                      >
+                        {row ? (
+                          <>
+                            <p className="text-sm font-medium">{row.subject}</p>
+                            <p className={cn("text-xs", loadStyle || "text-gray-500")} title={load != null ? `${load} уроков сегодня` : undefined}>
+                              {staffById.get(row.activeTeacherId)?.displayName ?? "Учитель"}
+                              {load != null ? <span className="ml-1 text-[10px] opacity-70">({load})</span> : null}
+                            </p>
+                          </>
+                        ) : <span className="text-gray-200">—</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </PageFrame>
   );
@@ -1160,10 +1470,70 @@ export function TeacherCabinet() {
   );
 }
 
+const TIMELINE_HOURS = Array.from({ length: 11 }, (_, i) => 8 + i);
+
+function TimelineStrip({ tasks }: { tasks: Array<{ _id: string; title: string; description: string; priority: string; scheduledHour: number; relatedIncidentId?: string }> }) {
+  const scheduled = tasks.filter((t) => t.scheduledHour >= 8 && t.scheduledHour <= 18);
+  const unscheduled = tasks.filter((t) => t.scheduledHour < 8 || t.scheduledHour > 18);
+  return (
+    <div className="mt-4">
+      <div className="relative rounded-lg bg-white p-4">
+        {TIMELINE_HOURS.map((hour) => {
+          const hourTasks = scheduled.filter((t) => t.scheduledHour === hour);
+          return (
+            <div key={hour} className="flex min-h-12 border-b border-gray-50">
+              <div className="w-14 shrink-0 py-2 text-xs tabular-nums text-gray-400">{String(hour).padStart(2, "0")}:00</div>
+              <div className="flex flex-1 flex-wrap items-start gap-2 py-1">
+                {hourTasks.map((task) => (
+                  <div
+                    key={task._id}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-xs",
+                      task.relatedIncidentId ? "bg-red-50 text-red-700" :
+                      task.priority === "high" ? "bg-orange-50 text-orange-700" :
+                      task.priority === "medium" ? "bg-yellow-50 text-yellow-700" :
+                      "bg-blue-50 text-blue-700",
+                    )}
+                  >
+                    <p className="font-medium">{task.title}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {unscheduled.length > 0 ? (
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-medium uppercase text-gray-400">Без времени</p>
+          <div className="flex flex-wrap gap-2">
+            {unscheduled.map((task) => (
+              <div key={task._id} className="rounded-md bg-gray-50 px-3 py-1.5 text-xs text-gray-600">{task.title}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function KitchenPage() {
-  const { schoolId, classes } = useSchool();
+  const { schoolId, classes, currentStaff } = useSchool();
   const meal = useQuery(api["modules/ops/attendance"].getMealSummary, schoolId ? { schoolId, date: todayIso() } : "skip");
   const attendance = useQuery(api["modules/ops/attendance"].listByDate, schoolId ? { schoolId, date: todayIso() } : "skip");
+  const myTasks = useQuery(
+    api["modules/ops/tasks"].listTodayByAssignee,
+    schoolId && currentStaff ? { schoolId, staffId: currentStaff._id, date: todayIso() } : "skip",
+  );
+  const kitchenEvents = useMemo(() => {
+    const base: Array<{ _id: string; title: string; description: string; priority: string; scheduledHour: number; relatedIncidentId?: string }> = [
+      { _id: "cutoff", title: "Крайний срок сдачи посещаемости", description: "", priority: "high", scheduledHour: 9 },
+    ];
+    if (myTasks) {
+      for (const t of myTasks) base.push(t as any);
+    }
+    return base;
+  }, [myTasks]);
   return (
     <PageFrame>
       <PageHeader title="Питание сегодня" subtitle={new Date().toLocaleDateString("ru-RU")} />
@@ -1171,17 +1541,22 @@ export function KitchenPage() {
         <p className="text-4xl font-bold text-brand-purple tabular-nums">Всего порций: {meal?.totalMeals ?? 0}</p>
         <p className="mt-3 text-2xl text-gray-600">Отсутствует: {meal?.totalAbsent ?? 0} учеников</p>
       </div>
-      <div className="rounded-lg bg-white">
-        {(attendance ?? []).map((record) => (
-          <Row key={record._id} className="px-5 text-lg">
-            <div className="grid grid-cols-3 gap-4">
-              <span><ClassCode id={record.classId} /></span>
-              <span className="text-gray-500"><StaffName id={classes.find((classDoc) => classDoc._id === record.classId)?.homeroomTeacherId} /></span>
-              <span className="text-right tabular-nums">{record.mealCount}</span>
-            </div>
-          </Row>
-        ))}
-      </div>
+      <Section label="МОЙ ДЕНЬ">
+        <TimelineStrip tasks={kitchenEvents} />
+      </Section>
+      <Section label="ПОСЕЩАЕМОСТЬ ПО КЛАССАМ">
+        <div className="rounded-lg bg-white">
+          {(attendance ?? []).map((record) => (
+            <Row key={record._id} className="px-5 text-lg">
+              <div className="grid grid-cols-3 gap-4">
+                <span><ClassCode id={record.classId} /></span>
+                <span className="text-gray-500"><StaffName id={classes.find((classDoc) => classDoc._id === record.classId)?.homeroomTeacherId} /></span>
+                <span className="text-right tabular-nums">{record.mealCount}</span>
+              </div>
+            </Row>
+          ))}
+        </div>
+      </Section>
       <Button className="mt-8 h-14 w-full text-lg" onClick={() => window.print()}>Распечатать</Button>
     </PageFrame>
   );
@@ -1189,6 +1564,10 @@ export function KitchenPage() {
 
 export function FacilitiesPage() {
   const { schoolId, currentStaff } = useSchool();
+  const timelineTasks = useQuery(
+    api["modules/ops/tasks"].listTodayByAssignee,
+    schoolId && currentStaff ? { schoolId, staffId: currentStaff._id, date: todayIso() } : "skip",
+  );
   const tasks = useQuery(api["modules/ops/tasks"].listBoard, schoolId && currentStaff ? { schoolId, assigneeStaffId: currentStaff._id } : "skip");
   const updateStatus = useMutation(api["modules/ops/tasks"].updateStatus);
   const [hidden, setHidden] = useState<Set<Id<"tasks">>>(new Set());
@@ -1196,21 +1575,28 @@ export function FacilitiesPage() {
   return (
     <PageFrame>
       <PageHeader title="Мои задачи" subtitle="Хозяйственные поручения" />
-      {tasks === undefined ? <SkeletonCard /> : rows.length === 0 ? (
-        <EmptyState icon={CheckCircle} title="Все задачи выполнены!" subtitle="Отличная работа команды сегодня" />
-      ) : rows.map((task) => (
-        <motion.div key={task._id} className="mb-6 border-b border-gray-100 pb-6" exit={{ opacity: 0 }}>
-          <h2 className="text-xl font-medium text-gray-900">{task.title}</h2>
-          <p className="mt-2 text-gray-500">{task.description}</p>
-          <p className="mt-3 text-sm text-gray-500">{task.priority === "high" ? "Высокий приоритет" : "Обычный приоритет"}</p>
-          <Button className="mt-4 h-14 w-full bg-green-500 text-lg hover:bg-green-600" onClick={() => {
-            setHidden((current) => new Set(current).add(task._id));
-            void updateStatus({ taskId: task._id, status: "done" }).then(() => toast.success("Задача выполнена!"));
-          }}>
-            Отметить выполненной
-          </Button>
-        </motion.div>
-      ))}
+      {timelineTasks && timelineTasks.length > 0 ? (
+        <Section label="МОЙ ДЕНЬ">
+          <TimelineStrip tasks={timelineTasks as any} />
+        </Section>
+      ) : null}
+      <Section label="ВСЕ ЗАДАЧИ">
+        {tasks === undefined ? <SkeletonCard /> : rows.length === 0 ? (
+          <EmptyState icon={CheckCircle} title="Все задачи выполнены!" subtitle="Отличная работа команды сегодня" />
+        ) : rows.map((task) => (
+          <motion.div key={task._id} className="mb-6 border-b border-gray-100 pb-6" exit={{ opacity: 0 }}>
+            <h2 className="text-xl font-medium text-gray-900">{task.title}</h2>
+            <p className="mt-2 text-gray-500">{task.description}</p>
+            <p className="mt-3 text-sm text-gray-500">{task.priority === "high" ? "Высокий приоритет" : "Обычный приоритет"}</p>
+            <Button className="mt-4 h-14 w-full bg-green-500 text-lg hover:bg-green-600" onClick={() => {
+              setHidden((current) => new Set(current).add(task._id));
+              void updateStatus({ taskId: task._id, status: "done" }).then(() => toast.success("Задача выполнена!"));
+            }}>
+              Отметить выполненной
+            </Button>
+          </motion.div>
+        ))}
+      </Section>
     </PageFrame>
   );
 }

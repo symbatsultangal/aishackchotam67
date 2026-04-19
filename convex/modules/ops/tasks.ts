@@ -99,3 +99,54 @@ export const listBoard = query({
     return tasks.filter((task: any) => task.assigneeStaffId === args.assigneeStaffId);
   },
 });
+
+function prioritySlotHour(priority: string): number {
+  if (priority === "high") return 9;
+  if (priority === "medium") return 13;
+  return 16;
+}
+
+export const listTodayByAssignee = query({
+  args: {
+    schoolId: v.id("schools"),
+    staffId: v.id("staff"),
+    date: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args: { schoolId: Id<"schools">; staffId: Id<"staff">; date?: string },
+  ) => {
+    const today = args.date ?? new Date().toISOString().slice(0, 10);
+    const tasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_school_assignee_status_due", (q: any) =>
+        q.eq("schoolId", args.schoolId).eq("assigneeStaffId", args.staffId),
+      )
+      .collect();
+
+    return tasks
+      .filter((t: any) => t.status !== "done" && t.status !== "canceled")
+      .map((t: any) => {
+        let scheduledHour: number;
+        if (t.dueAt) {
+          try {
+            const dueDate = new Date(t.dueAt);
+            if (dueDate.toISOString().slice(0, 10) === today) {
+              scheduledHour = dueDate.getUTCHours();
+            } else {
+              scheduledHour = prioritySlotHour(t.priority);
+            }
+          } catch {
+            scheduledHour = prioritySlotHour(t.priority);
+          }
+        } else {
+          scheduledHour = prioritySlotHour(t.priority);
+        }
+        return {
+          ...t,
+          scheduledHour,
+        };
+      })
+      .sort((a: any, b: any) => a.scheduledHour - b.scheduledHour);
+  },
+});

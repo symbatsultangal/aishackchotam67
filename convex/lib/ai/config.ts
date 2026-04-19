@@ -9,6 +9,8 @@ export const AI_CAPABILITIES = [
   "directorCommandRouting",
   "complianceReasoning",
   "documentEmbeddings",
+  "orderQuestioning",
+  "orderComposition",
 ] as const;
 
 export type AiCapability = (typeof AI_CAPABILITIES)[number];
@@ -26,6 +28,8 @@ const CAPABILITY_ENV_PREFIX: Record<AiCapability, string> = {
   directorCommandRouting: "AI_DIRECTOR_COMMAND_ROUTING",
   complianceReasoning: "AI_COMPLIANCE_REASONING",
   documentEmbeddings: "AI_DOCUMENT_EMBEDDINGS",
+  orderQuestioning: "AI_ORDER_QUESTIONING",
+  orderComposition: "AI_ORDER_COMPOSITION",
 };
 
 export function getAiCapabilityConfig(

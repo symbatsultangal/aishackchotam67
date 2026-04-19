@@ -59,6 +59,55 @@ describe("rankSubstitutionCandidates", () => {
     expect(result[2].eligible).toBe(false);
   });
 
+  test("room-conflicted candidate is ineligible even when free and subject-matching", () => {
+    const context: SubstitutionRequestContext = {
+      subject: "Physics",
+      grade: "5",
+      roomId: "room-lab",
+      lessonNumber: 3,
+      date: "2026-04-18",
+      lessons: [
+        { lessonNumber: 3, subject: "Physics", roomId: "room-lab" },
+        { lessonNumber: 4, subject: "Chemistry", roomId: "room-lab" },
+      ],
+    };
+
+    const candidates: SubstitutionCandidate[] = [
+      {
+        staffId: "teacher-room-blocked",
+        displayName: "Room Blocked",
+        subjects: ["Physics", "Chemistry"],
+        grades: ["5"],
+        qualifications: ["science-specialist"],
+        isFree: true,
+        roomAvailable: false,
+        dailyAssignedLessons: 1,
+        conflictReasons: ["Room occupied during lesson(s) 3, 4"],
+      },
+      {
+        staffId: "teacher-clear",
+        displayName: "All Clear",
+        subjects: ["Physics"],
+        grades: ["5"],
+        qualifications: [],
+        isFree: true,
+        roomAvailable: true,
+        dailyAssignedLessons: 2,
+      },
+    ];
+
+    const result = rankSubstitutionCandidates(context, candidates);
+    const blocked = result.find((c) => c.staffId === "teacher-room-blocked")!;
+    const clear = result.find((c) => c.staffId === "teacher-clear")!;
+
+    expect(blocked.eligible).toBe(false);
+    expect(blocked.reasons).toContain("Assigned room is not available");
+    expect(clear.eligible).toBe(true);
+    // An eligible candidate should always be preferred over an ineligible one,
+    // regardless of raw score — eligibility is a hard filter.
+    expect(result.filter((c) => c.eligible)[0].staffId).toBe("teacher-clear");
+  });
+
   test("penalizes busy teachers when qualifications are otherwise similar", () => {
     const context: SubstitutionRequestContext = {
       subject: "English",

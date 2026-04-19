@@ -9,6 +9,11 @@ import {
   type SubstitutionCandidate,
   type SubstitutionRequestContext,
 } from "../../lib/ranking";
+import {
+  buildOccupancyMaps,
+  vacateTeacher,
+  checkCandidateConflicts,
+} from "../../lib/scheduleConflicts";
 import { substitutionCandidateValidator } from "../../lib/validators";
 
 const action: any = actionGeneric;
@@ -27,11 +32,11 @@ const getTeacherRef = publicRef<
   Doc<"staff"> | null
 >("modules/substitutions/planner:_getTeacher");
 
-const getTemplateForTeacherLessonRef = publicRef<
+const getTemplatesForTeacherDayRef = publicRef<
   "query",
-  { teacherId: Id<"staff">; lessonNumber: number },
-  Doc<"scheduleTemplates"> | null
->("modules/substitutions/planner:_getTemplateForTeacherLesson");
+  { teacherId: Id<"staff">; weekday: number; lessonNumbers: number[] },
+  Doc<"scheduleTemplates">[]
+>("modules/substitutions/planner:_getTemplatesForTeacherDay");
 
 const getClassByIdRef = publicRef<
   "query",
@@ -51,11 +56,11 @@ const listAssignableStaffRef = publicRef<
   Doc<"staff">[]
 >("modules/schoolCore/staff:listAssignable");
 
-const getTeacherOverridesForDateRef = publicRef<
+const getOverridesForDateRef = publicRef<
   "query",
   { schoolId: Id<"schools">; date: string },
   Doc<"scheduleOverrides">[]
->("modules/substitutions/planner:_getTeacherOverridesForDate");
+>("modules/substitutions/planner:_getOverridesForDate");
 
 const saveCandidatesRef = publicRef<
   "mutation",
@@ -73,39 +78,6 @@ const saveCandidatesRef = publicRef<
 
 type RankCandidatesArgs = {
   requestId: Id<"substitutionRequests">;
-};
-
-type GetTeacherArgs = {
-  teacherId: Id<"staff">;
-};
-
-type GetTemplateForTeacherLessonArgs = {
-  teacherId: Id<"staff">;
-  lessonNumber: number;
-};
-
-type GetTeacherOverridesForDateArgs = {
-  schoolId: Id<"schools">;
-  date: string;
-};
-
-type GetScheduleRowsForWeekdayArgs = {
-  schoolId: Id<"schools">;
-  weekday: number;
-};
-
-type GetClassByIdArgs = {
-  classId: Id<"classes">;
-};
-
-type SaveCandidatesArgs = {
-  requestId: Id<"substitutionRequests">;
-  chosenCandidates: Array<{
-    staffId: Id<"staff">;
-    score: number;
-    eligible: boolean;
-    reasons: string[];
-  }>;
 };
 
 export const rankCandidates = action({
@@ -127,19 +99,44 @@ export const rankCandidates = action({
       throw new Error("Absent teacher not found");
     }
 
-    const scheduleRow = await ctx.runQuery(
-      getTemplateForTeacherLessonRef,
-      {
-        teacherId: request.absentTeacherId,
-        lessonNumber: request.lessons[0],
-      },
-    );
-    if (!scheduleRow) {
-      throw new Error("No schedule row found for absent teacher lesson");
+    // P0-1: look up every lesson the absent teacher covers today so ranking
+    // context covers all requested lessons, not just lessons[0].
+    const absentTeacherRows = await ctx.runQuery(getTemplatesForTeacherDayRef, {
+      teacherId: request.absentTeacherId,
+      weekday: new Date(`${request.date}T00:00:00Z`).getUTCDay(),
+      lessonNumbers: request.lessons,
+    });
+
+    // Build ordered lesson slots used for scoring and conflict detection.
+    const lessonSlots = request.lessons
+      .map((lessonNumber: number) => {
+        const row = absentTeacherRows.find(
+          (candidateRow: any) => candidateRow.lessonNumber === lessonNumber,
+        );
+        return row
+          ? {
+              lessonNumber,
+              subject: row.subject,
+              roomId: String(row.roomId),
+              classId: row.classId,
+            }
+          : null;
+      })
+      .filter(
+        (slot): slot is {
+          lessonNumber: number;
+          subject: string;
+          roomId: string;
+          classId: Id<"classes">;
+        } => slot !== null,
+      );
+    if (lessonSlots.length === 0) {
+      throw new Error("No schedule rows found for absent teacher lessons");
     }
 
+    const primarySlot = lessonSlots[0];
     const classDoc = await ctx.runQuery(getClassByIdRef, {
-      classId: scheduleRow.classId,
+      classId: primarySlot.classId,
     });
     const weekday = new Date(`${request.date}T00:00:00Z`).getUTCDay();
     const baseScheduleRows = await ctx.runQuery(
@@ -153,26 +150,22 @@ export const rankCandidates = action({
       schoolId: request.schoolId,
       activeOnly: true,
     });
-    const overrides = await ctx.runQuery(
-      getTeacherOverridesForDateRef,
-      {
-        schoolId: request.schoolId,
-        date: request.date,
-      },
-    );
+    const overrides = await ctx.runQuery(getOverridesForDateRef, {
+      schoolId: request.schoolId,
+      date: request.date,
+    });
+    const activeOverrides = overrides.filter((override: any) => override.status !== "canceled");
+
+    const maps = buildOccupancyMaps(baseScheduleRows as any, activeOverrides as any);
+    vacateTeacher(maps, request.absentTeacherId, lessonSlots);
 
     const candidates: SubstitutionCandidate[] = staff
       .filter((member: any) => member._id !== request.absentTeacherId)
       .map((member: any) => {
-        const alreadyAssignedOverride = overrides.some(
-          (override: any) =>
-            override.substituteTeacherId === member._id &&
-            request.lessons.includes(override.lessonNumber),
-        );
-        const baseConflictRows = baseScheduleRows.filter(
-          (row: any) => row.teacherId === member._id &&
-          request.lessons.includes(row.lessonNumber),
-        );
+        const conflicts = checkCandidateConflicts(maps, member._id, lessonSlots);
+        const dailyAssignedLessons = baseScheduleRows.filter(
+          (row: any) => row.teacherId === member._id,
+        ).length;
 
         return {
           staffId: member._id,
@@ -180,19 +173,24 @@ export const rankCandidates = action({
           subjects: member.subjects,
           grades: member.grades,
           qualifications: member.qualifications,
-          isFree: baseConflictRows.length === 0 && !alreadyAssignedOverride,
-          roomAvailable: true,
-          dailyAssignedLessons: baseScheduleRows.filter((row: any) => row.teacherId === member._id)
-            .length,
+          isFree: conflicts.isFree,
+          roomAvailable: conflicts.roomAvailable,
+          dailyAssignedLessons,
+          conflictReasons: conflicts.conflictReasons,
         };
       });
 
     const context: SubstitutionRequestContext = {
-      subject: scheduleRow.subject,
+      subject: primarySlot.subject,
       grade: classDoc?.grade ?? "",
-      roomId: scheduleRow.roomId,
-      lessonNumber: request.lessons[0],
+      roomId: primarySlot.roomId,
+      lessonNumber: primarySlot.lessonNumber,
       date: request.date,
+      lessons: lessonSlots.map((slot) => ({
+        lessonNumber: slot.lessonNumber,
+        subject: slot.subject,
+        roomId: slot.roomId,
+      })),
     };
     const ranked = rankSubstitutionCandidates(context, candidates);
 
@@ -214,29 +212,49 @@ export const _getTeacher = query({
   args: {
     teacherId: v.id("staff"),
   },
-  handler: async (ctx: QueryCtx, args: GetTeacherArgs) => ctx.db.get(args.teacherId),
+  handler: async (ctx: QueryCtx, args: { teacherId: Id<"staff"> }) =>
+    ctx.db.get(args.teacherId),
 });
 
-export const _getTemplateForTeacherLesson = query({
+export const _getTemplatesForTeacherDay = query({
   args: {
     teacherId: v.id("staff"),
-    lessonNumber: v.number(),
+    weekday: v.number(),
+    lessonNumbers: v.array(v.number()),
   },
-  handler: async (ctx: QueryCtx, args: GetTemplateForTeacherLessonArgs) => {
+  handler: async (
+    ctx: QueryCtx,
+    args: {
+      teacherId: Id<"staff">;
+      weekday: number;
+      lessonNumbers: number[];
+    },
+  ) => {
     const rows = await ctx.db
       .query("scheduleTemplates")
       .withIndex("by_teacher_weekday_lesson", (q: any) => q.eq("teacherId", args.teacherId))
       .collect();
-    return rows.find((row: any) => row.lessonNumber === args.lessonNumber) ?? null;
+    return rows.filter(
+      (row: any) =>
+        row.weekday === args.weekday &&
+        args.lessonNumbers.includes(row.lessonNumber),
+    );
   },
 });
 
-export const _getTeacherOverridesForDate = query({
+// P0-1 preserves the old query name for any lingering callers, but now we
+// return every override for the date, not just ones where the candidate is
+// already a substitute. The planner needs the full picture to detect room
+// conflicts introduced by earlier overrides.
+export const _getOverridesForDate = query({
   args: {
     schoolId: v.id("schools"),
     date: v.string(),
   },
-  handler: async (ctx: QueryCtx, args: GetTeacherOverridesForDateArgs) => {
+  handler: async (
+    ctx: QueryCtx,
+    args: { schoolId: Id<"schools">; date: string },
+  ) => {
     return ctx.db
       .query("scheduleOverrides")
       .withIndex("by_school_date_class_lesson", (q: any) =>
@@ -251,10 +269,14 @@ export const _getScheduleRowsForWeekday = query({
     schoolId: v.id("schools"),
     weekday: v.number(),
   },
-  handler: async (ctx: QueryCtx, args: GetScheduleRowsForWeekdayArgs) => {
+  handler: async (
+    ctx: QueryCtx,
+    args: { schoolId: Id<"schools">; weekday: number },
+  ) => {
     const rows = await ctx.db.query("scheduleTemplates").collect();
     return rows.filter(
-      (row: any) => row.schoolId === args.schoolId && row.weekday === args.weekday,
+      (row: any) =>
+        row.schoolId === args.schoolId && row.weekday === args.weekday,
     );
   },
 });
@@ -263,7 +285,8 @@ export const _getClassById = query({
   args: {
     classId: v.id("classes"),
   },
-  handler: async (ctx: QueryCtx, args: GetClassByIdArgs) => ctx.db.get(args.classId),
+  handler: async (ctx: QueryCtx, args: { classId: Id<"classes"> }) =>
+    ctx.db.get(args.classId),
 });
 
 export const _saveCandidates = mutation({
@@ -271,7 +294,18 @@ export const _saveCandidates = mutation({
     requestId: v.id("substitutionRequests"),
     chosenCandidates: v.array(substitutionCandidateValidator),
   },
-  handler: async (ctx: MutationCtx, args: SaveCandidatesArgs) => {
+  handler: async (
+    ctx: MutationCtx,
+    args: {
+      requestId: Id<"substitutionRequests">;
+      chosenCandidates: Array<{
+        staffId: Id<"staff">;
+        score: number;
+        eligible: boolean;
+        reasons: string[];
+      }>;
+    },
+  ) => {
     await ctx.db.patch(args.requestId, {
       chosenCandidates: args.chosenCandidates,
       status: "ranked",
