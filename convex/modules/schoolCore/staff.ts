@@ -3,7 +3,11 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { mutationGeneric, queryGeneric } from "convex/server";
 import { v } from "convex/values";
 
-import { roleListValidator, staffSeedMemberValidator } from "../../lib/validators";
+import {
+  roleListValidator,
+  staffLoadProfileValidator,
+  staffSeedMemberValidator,
+} from "../../lib/validators";
 
 const mutation: any = mutationGeneric;
 const query: any = queryGeneric;
@@ -57,6 +61,54 @@ type UpdateStaffArgs = {
     >
   >;
 };
+
+type UpsertLoadProfilesArgs = {
+  schoolId: Id<"schools">;
+  profiles: Array<{
+    staffId: Id<"staff">;
+    academicYear: string;
+    sourceSheet?: string;
+    diplomaSpecialty?: string;
+    weeklyLoadTarget?: number;
+    totalAssignedLoad?: number;
+    subjectLoads: Array<{
+      subject: string;
+      classLoads: Array<{
+        classCode: string;
+        load: number;
+      }>;
+      bandLoads: Array<{
+        label: string;
+        load: number;
+      }>;
+      totalLoad?: number;
+    }>;
+    notes?: string;
+  }>;
+};
+
+function loadProfileWrite(
+  profile: UpsertLoadProfilesArgs["profiles"][number],
+  schoolId: Id<"schools">,
+) {
+  return {
+    schoolId,
+    staffId: profile.staffId,
+    academicYear: profile.academicYear,
+    subjectLoads: profile.subjectLoads,
+    ...(profile.sourceSheet !== undefined ? { sourceSheet: profile.sourceSheet } : {}),
+    ...(profile.diplomaSpecialty !== undefined
+      ? { diplomaSpecialty: profile.diplomaSpecialty }
+      : {}),
+    ...(profile.weeklyLoadTarget !== undefined
+      ? { weeklyLoadTarget: profile.weeklyLoadTarget }
+      : {}),
+    ...(profile.totalAssignedLoad !== undefined
+      ? { totalAssignedLoad: profile.totalAssignedLoad }
+      : {}),
+    ...(profile.notes !== undefined ? { notes: profile.notes } : {}),
+  };
+}
 
 export const seed = mutation({
   args: {
@@ -148,5 +200,35 @@ export const updateStaff = mutation({
   handler: async (ctx: MutationCtx, args: UpdateStaffArgs) => {
     await ctx.db.patch(args.staffId, args.patch);
     return args.staffId;
+  },
+});
+
+export const upsertLoadProfiles = mutation({
+  args: {
+    schoolId: v.id("schools"),
+    profiles: v.array(staffLoadProfileValidator),
+  },
+  handler: async (ctx: MutationCtx, args: UpsertLoadProfilesArgs) => {
+    const ids: Id<"staffLoadProfiles">[] = [];
+    for (const profile of args.profiles) {
+      const existing = await ctx.db
+        .query("staffLoadProfiles")
+        .withIndex("by_staff_academicYear", (q: any) =>
+          q.eq("staffId", profile.staffId).eq("academicYear", profile.academicYear),
+        )
+        .unique();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, loadProfileWrite(profile, args.schoolId));
+        ids.push(existing._id);
+      } else {
+        ids.push(
+          await ctx.db.insert("staffLoadProfiles", {
+            ...loadProfileWrite(profile, args.schoolId),
+          }),
+        );
+      }
+    }
+    return ids;
   },
 });

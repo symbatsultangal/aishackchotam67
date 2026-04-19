@@ -16,6 +16,8 @@ export const createFromParse = mutation({
     return ctx.db.insert("incidents", {
       ...args,
       status: "open",
+      assignmentStatus: "unassigned",
+      assignmentReason: "awaiting_incident_assignment",
     });
   },
 });
@@ -50,6 +52,8 @@ export const createManual = mutation({
       ...args,
       sourceMessageId,
       status: "open",
+      assignmentStatus: "unassigned",
+      assignmentReason: "manual_incident_not_assigned",
     });
   },
 });

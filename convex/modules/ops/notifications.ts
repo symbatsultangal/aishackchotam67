@@ -84,8 +84,8 @@ export const enqueue = mutation({
   }) => {
     const existing = await ctx.db
       .query("notifications")
-      .filter((q: any) => q.eq(q.field("dedupeKey"), args.dedupeKey))
-      .first();
+      .withIndex("by_dedupe_key", (q: any) => q.eq("dedupeKey", args.dedupeKey))
+      .unique();
     if (existing) {
       return existing._id;
     }

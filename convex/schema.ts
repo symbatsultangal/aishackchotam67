@@ -3,21 +3,29 @@ import { v } from "convex/values";
 
 import { DEFAULT_EMBEDDING_DIMENSIONS } from "./lib/env";
 import {
+  assessmentKindValidator,
   aiRunStatusValidator,
+  assessmentSeedEntryFields,
   complianceResultValidator,
   complianceTargetTypeValidator,
   documentParseStatusValidator,
+  incidentAssignmentStatusValidator,
   incidentSeverityValidator,
   incidentStatusValidator,
   notificationStatusValidator,
   ragChunkFields,
   roleListValidator,
   scheduleOverrideStatusValidator,
+  scheduleCompositeSeedEntryFields,
   substitutionCandidateValidator,
   substitutionRequestStatusValidator,
+  staffLoadProfileFields,
   taskPriorityValidator,
   taskSourceValidator,
   taskStatusValidator,
+  telegramIngressSourceValidator,
+  telegramInviteCodeStatusValidator,
+  timeSlotSeedItemFields,
   telegramMessageTypeValidator,
   telegramParserStatusValidator,
   voiceCommandStatusValidator,
@@ -58,15 +66,16 @@ export default defineSchema({
     schoolId: v.id("schools"),
     code: v.string(),
     capacity: v.optional(v.number()),
+    floor: v.optional(v.number()),
+    homeClassCode: v.optional(v.string()),
+    managerName: v.optional(v.string()),
+    description: v.optional(v.string()),
     active: v.boolean(),
   }).index("by_school_code", ["schoolId", "code"]),
 
   timeSlots: defineTable({
     schoolId: v.id("schools"),
-    weekday: v.number(),
-    lessonNumber: v.number(),
-    startTime: v.string(),
-    endTime: v.string(),
+    ...timeSlotSeedItemFields,
   }).index("by_school_weekday_lesson", ["schoolId", "weekday", "lessonNumber"]),
 
   scheduleTemplates: defineTable({
@@ -81,6 +90,13 @@ export default defineSchema({
     .index("by_class_weekday_lesson", ["classId", "weekday", "lessonNumber"])
     .index("by_teacher_weekday_lesson", ["teacherId", "weekday", "lessonNumber"])
     .index("by_room_weekday_lesson", ["roomId", "weekday", "lessonNumber"]),
+
+  scheduleCompositeEntries: defineTable({
+    schoolId: v.id("schools"),
+    ...scheduleCompositeSeedEntryFields,
+  })
+    .index("by_class_weekday_lesson", ["classId", "weekday", "lessonNumber"])
+    .index("by_school_weekday_lesson", ["schoolId", "weekday", "lessonNumber"]),
 
   scheduleOverrides: defineTable({
     schoolId: v.id("schools"),
@@ -114,20 +130,38 @@ export default defineSchema({
     active: v.boolean(),
   })
     .index("by_school_telegram_user", ["schoolId", "telegramUserId"])
-    .index("by_school_staff", ["schoolId", "staffId"]),
+    .index("by_school_staff", ["schoolId", "staffId"])
+    .index("by_school_chat", ["schoolId", "chatId"]),
+
+  telegramInviteCodes: defineTable({
+    schoolId: v.id("schools"),
+    staffId: v.id("staff"),
+    code: v.string(),
+    status: telegramInviteCodeStatusValidator,
+    expiresAt: v.string(),
+    redeemedAt: v.optional(v.string()),
+    redeemedTelegramUserId: v.optional(v.string()),
+    redeemedChatId: v.optional(v.string()),
+  })
+    .index("by_code", ["code"])
+    .index("by_school_staff_status", ["schoolId", "staffId", "status"])
+    .index("by_school_status_expiresAt", ["schoolId", "status", "expiresAt"]),
 
   telegramMessages: defineTable({
     schoolId: v.id("schools"),
     chatId: v.string(),
     telegramMessageId: v.string(),
+    updateId: v.optional(v.number()),
     telegramUserId: v.string(),
     staffId: v.optional(v.id("staff")),
     direction: v.union(v.literal("in"), v.literal("out")),
     messageType: telegramMessageTypeValidator,
     rawText: v.optional(v.string()),
     fileId: v.optional(v.string()),
+    source: v.optional(telegramIngressSourceValidator),
     receivedAt: v.string(),
     parserStatus: telegramParserStatusValidator,
+    parserDetails: v.optional(v.string()),
     dedupeKey: v.string(),
   })
     .index("by_dedupe_key", ["dedupeKey"])
@@ -146,7 +180,8 @@ export default defineSchema({
     parserRunId: v.optional(v.id("aiRuns")),
   })
     .index("by_school_date_class", ["schoolId", "date", "classId"])
-    .index("by_school_date", ["schoolId", "date"]),
+    .index("by_school_date", ["schoolId", "date"])
+    .index("by_source_message_id", ["sourceMessageId"]),
 
   mealSummaries: defineTable({
     schoolId: v.id("schools"),
@@ -170,12 +205,16 @@ export default defineSchema({
     severity: incidentSeverityValidator,
     status: incidentStatusValidator,
     linkedTaskId: v.optional(v.id("tasks")),
+    assignmentStatus: v.optional(incidentAssignmentStatusValidator),
+    assignmentReason: v.optional(v.string()),
     // Deprecated legacy dashboard fields kept temporarily so existing dev data can validate.
     type: v.optional(v.string()),
     reportedBy: v.optional(v.string()),
     assignedTo: v.optional(v.string()),
     aiConfidence: v.optional(v.number()),
-  }).index("by_school_status_created", ["schoolId", "status"]),
+  })
+    .index("by_school_status_created", ["schoolId", "status"])
+    .index("by_source_message_id", ["sourceMessageId"]),
 
   voiceCommands: defineTable({
     schoolId: v.id("schools"),
@@ -219,6 +258,21 @@ export default defineSchema({
   })
     .index("by_school_date_status", ["schoolId", "date", "status"])
     .index("by_absentTeacher_date", ["absentTeacherId", "date"]),
+
+  assessmentEntries: defineTable({
+    schoolId: v.id("schools"),
+    ...assessmentSeedEntryFields,
+  })
+    .index("by_school_kind_sourceRowKey", ["schoolId", "kind", "sourceRowKey"])
+    .index("by_school_kind_scheduledDate", ["schoolId", "kind", "scheduledDate"])
+    .index("by_school_classId_kind", ["schoolId", "classId", "kind"]),
+
+  staffLoadProfiles: defineTable({
+    schoolId: v.id("schools"),
+    ...staffLoadProfileFields,
+  })
+    .index("by_staff_academicYear", ["staffId", "academicYear"])
+    .index("by_school_academicYear", ["schoolId", "academicYear"]),
 
   ministryDocuments: defineTable({
     schoolId: v.id("schools"),
@@ -280,7 +334,8 @@ export default defineSchema({
     createdAt: v.optional(v.number()),
   })
     .index("by_school_status_scheduledFor", ["schoolId", "status", "scheduledFor"])
-    .index("by_recipient_status", ["recipientStaffId", "status"]),
+    .index("by_recipient_status", ["recipientStaffId", "status"])
+    .index("by_dedupe_key", ["dedupeKey"]),
 
   aiRuns: defineTable({
     schoolId: v.id("schools"),

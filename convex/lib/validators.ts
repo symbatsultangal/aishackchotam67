@@ -43,6 +43,11 @@ export const incidentStatusValidator = v.union(
   v.literal("resolved"),
 );
 
+export const incidentAssignmentStatusValidator = v.union(
+  v.literal("assigned"),
+  v.literal("unassigned"),
+);
+
 export const telegramMessageTypeValidator = v.union(
   v.literal("text"),
   v.literal("voice"),
@@ -53,6 +58,18 @@ export const telegramParserStatusValidator = v.union(
   v.literal("processed"),
   v.literal("ignored"),
   v.literal("error"),
+);
+
+export const telegramInviteCodeStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("redeemed"),
+  v.literal("expired"),
+  v.literal("revoked"),
+);
+
+export const telegramIngressSourceValidator = v.union(
+  v.literal("polling"),
+  v.literal("webhook"),
 );
 
 export const voiceCommandStatusValidator = v.union(
@@ -75,6 +92,11 @@ export const scheduleOverrideStatusValidator = v.union(
   v.literal("confirmed"),
   v.literal("applied"),
   v.literal("canceled"),
+);
+
+export const assessmentKindValidator = v.union(
+  v.literal("tjb"),
+  v.literal("bjb"),
 );
 
 export const documentParseStatusValidator = v.union(
@@ -140,6 +162,27 @@ export const roomSeedItemFields = {
 
 export const roomSeedItemValidator = v.object(roomSeedItemFields);
 
+export const roomDetailSeedItemFields = {
+  code: v.string(),
+  capacity: v.optional(v.number()),
+  active: v.optional(v.boolean()),
+  floor: v.optional(v.number()),
+  homeClassCode: v.optional(v.string()),
+  managerName: v.optional(v.string()),
+  description: v.optional(v.string()),
+};
+
+export const roomDetailSeedItemValidator = v.object(roomDetailSeedItemFields);
+
+export const timeSlotSeedItemFields = {
+  weekday: v.number(),
+  lessonNumber: v.number(),
+  startTime: v.string(),
+  endTime: v.string(),
+};
+
+export const timeSlotSeedItemValidator = v.object(timeSlotSeedItemFields);
+
 export const scheduleSeedEntryFields = {
   classId: v.id("classes"),
   weekday: v.number(),
@@ -150,6 +193,94 @@ export const scheduleSeedEntryFields = {
 };
 
 export const scheduleSeedEntryValidator = v.object(scheduleSeedEntryFields);
+
+export const scheduleCompositeComponentFields = {
+  subject: v.string(),
+  teacherName: v.optional(v.string()),
+  teacherId: v.optional(v.id("staff")),
+  roomCode: v.optional(v.string()),
+  roomId: v.optional(v.id("rooms")),
+  notes: v.optional(v.string()),
+};
+
+export const scheduleCompositeComponentValidator = v.object(
+  scheduleCompositeComponentFields,
+);
+
+export const scheduleCompositeSeedEntryFields = {
+  classId: v.id("classes"),
+  weekday: v.number(),
+  lessonNumber: v.number(),
+  rawCellText: v.string(),
+  rawRoomText: v.optional(v.string()),
+  sourceSheet: v.optional(v.string()),
+  sourceRowKey: v.optional(v.string()),
+  active: v.boolean(),
+  components: v.array(scheduleCompositeComponentValidator),
+};
+
+export const scheduleCompositeSeedEntryValidator = v.object(
+  scheduleCompositeSeedEntryFields,
+);
+
+export const staffLoadClassLoadFields = {
+  classCode: v.string(),
+  load: v.number(),
+};
+
+export const staffLoadClassLoadValidator = v.object(staffLoadClassLoadFields);
+
+export const staffLoadBandLoadFields = {
+  label: v.string(),
+  load: v.number(),
+};
+
+export const staffLoadBandLoadValidator = v.object(staffLoadBandLoadFields);
+
+export const staffLoadSubjectFields = {
+  subject: v.string(),
+  classLoads: v.array(staffLoadClassLoadValidator),
+  bandLoads: v.array(staffLoadBandLoadValidator),
+  totalLoad: v.optional(v.number()),
+};
+
+export const staffLoadSubjectValidator = v.object(staffLoadSubjectFields);
+
+export const staffLoadProfileFields = {
+  staffId: v.id("staff"),
+  academicYear: v.string(),
+  sourceSheet: v.optional(v.string()),
+  diplomaSpecialty: v.optional(v.string()),
+  weeklyLoadTarget: v.optional(v.number()),
+  totalAssignedLoad: v.optional(v.number()),
+  subjectLoads: v.array(staffLoadSubjectValidator),
+  notes: v.optional(v.string()),
+};
+
+export const staffLoadProfileValidator = v.object(staffLoadProfileFields);
+
+export const assessmentSeedEntryFields = {
+  kind: assessmentKindValidator,
+  sourceSheet: v.string(),
+  sourceRowKey: v.string(),
+  subject: v.string(),
+  classId: v.optional(v.id("classes")),
+  classCode: v.optional(v.string()),
+  gradeLabel: v.optional(v.string()),
+  scheduledDate: v.optional(v.string()),
+  lessonNumber: v.optional(v.number()),
+  timeLabel: v.optional(v.string()),
+  startTime: v.optional(v.string()),
+  endTime: v.optional(v.string()),
+  roomId: v.optional(v.id("rooms")),
+  roomCode: v.optional(v.string()),
+  teacherName: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  rawCellText: v.optional(v.string()),
+  active: v.boolean(),
+};
+
+export const assessmentSeedEntryValidator = v.object(assessmentSeedEntryFields);
 
 export const substitutionCandidateFields = {
   staffId: v.id("staff"),
